@@ -1,0 +1,11 @@
+[package]
+name = "wgpu-experiments"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = [".", "renderer"]
+
+[dependencies]
+renderer = { path = "renderer" }
+pollster = "0.2"
