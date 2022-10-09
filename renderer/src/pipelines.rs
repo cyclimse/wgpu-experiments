@@ -1,17 +1,18 @@
-use wgpu::ShaderModule;
+use wgpu::{ShaderModule, VertexBufferLayout};
 
 pub fn get_render_pipeline_descriptor<'a>(
     render_pipeline_layout: &'a wgpu::PipelineLayout,
     shader: &'a ShaderModule,
     targets: &'a [Option<wgpu::ColorTargetState>],
-) -> wgpu::RenderPipelineDescriptor {
+    buffers: &'a [VertexBufferLayout],
+) -> wgpu::RenderPipelineDescriptor<'a> {
     wgpu::RenderPipelineDescriptor {
         label: Some("Render Pipeline"),
         layout: Some(render_pipeline_layout),
         vertex: wgpu::VertexState {
             module: shader,
-            entry_point: "vs_main", // 1.
-            buffers: &[],           // 2.
+            entry_point: "vs_main",
+            buffers: buffers,
         },
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
@@ -27,16 +28,15 @@ pub fn get_render_pipeline_descriptor<'a>(
         },
         depth_stencil: None,
         multisample: wgpu::MultisampleState {
-            count: 1,                         // 2.
-            mask: !0,                         // 3.
-            alpha_to_coverage_enabled: false, // 4.
-        }, // 1.
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
         fragment: Some(wgpu::FragmentState {
-            // 3.
             module: shader,
             entry_point: "fs_main",
             targets: targets,
         }),
-        multiview: None, // 5.
+        multiview: None,
     }
 }

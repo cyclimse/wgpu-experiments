@@ -1,10 +1,12 @@
 mod pipelines;
+mod vertices;
 
 use cfg_if::cfg_if;
+use vertices::{INDICES, VERTICES};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use wgpu::include_wgsl;
+use wgpu::{include_wgsl, util::DeviceExt};
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -23,6 +25,10 @@ struct State {
     clear_color: wgpu::Color,
     render_pipelines: Vec<wgpu::RenderPipeline>,
     current_pipeline: usize,
+    vertex_buffer: wgpu::Buffer,
+    num_vertices: u32,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
 }
 
 impl State {
@@ -86,11 +92,14 @@ impl State {
 
         let mut render_pipelines = Vec::<wgpu::RenderPipeline>::new();
         {
+            let buffers = [vertices::Vertex::desc()];
+
             let render_pipeline =
                 device.create_render_pipeline(&pipelines::get_render_pipeline_descriptor(
                     &render_pipeline_layout,
                     &shader,
                     &targets,
+                    &buffers,
                 ));
 
             render_pipelines.push(render_pipeline);
@@ -99,13 +108,29 @@ impl State {
                 &render_pipeline_layout,
                 &shader,
                 &targets,
+                &buffers,
             );
-            render_pipeline_descriptor.fragment = render_pipeline_descriptor.fragment.as_mut().map(|f| {
-                f.entry_point = "fs_main_multicolor";
-                f.clone()
-            });
+            render_pipeline_descriptor.fragment =
+                render_pipeline_descriptor.fragment.as_mut().map(|f| {
+                    f.entry_point = "fs_main_multicolor";
+                    f.clone()
+                });
             render_pipelines.push(device.create_render_pipeline(render_pipeline_descriptor));
         }
+
+        let num_vertices = VERTICES.len() as u32;
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let num_indices = INDICES.len() as u32;
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
 
         Self {
             surface,
@@ -121,6 +146,10 @@ impl State {
             },
             render_pipelines,
             current_pipeline: 0,
+            vertex_buffer,
+            num_vertices,
+            index_buffer,
+            num_indices,
         }
     }
 
@@ -187,7 +216,9 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.render_pipelines[self.current_pipeline]);
-            render_pass.draw(0..3, 0..1);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
         // submit will accept anything that implements IntoIter
