@@ -1,4 +1,5 @@
 mod pipelines;
+mod textures;
 mod vertices;
 
 use cfg_if::cfg_if;
@@ -29,6 +30,9 @@ struct State {
     num_vertices: u32,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
+    diffuse_bind_groups: Vec<wgpu::BindGroup>,
+    diffuse_textures: Vec<textures::Texture>,
+    current_texture: usize,
 }
 
 impl State {
@@ -74,13 +78,40 @@ impl State {
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
         };
+
         surface.configure(&device, &config);
 
+        let mut diffuse_textures = Vec::<textures::Texture>::new();
+        let mut diffuse_bind_groups = Vec::<wgpu::BindGroup>::new();
+        let texture_bind_group_layout = create_bind_group_layout(&device);
+        {
+            let diffuse_bytes = include_bytes!("../assets/happy-tree.png");
+            let diffuse_texture =
+                textures::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png")
+                    .unwrap();
+
+            let diffuse_bind_group =
+                create_bind_group(&device, &texture_bind_group_layout, &diffuse_texture);
+            diffuse_textures.push(diffuse_texture);
+            diffuse_bind_groups.push(diffuse_bind_group);
+
+            let diffuse_bytes = include_bytes!("../assets/ferris.png");
+            let diffuse_texture =
+                textures::Texture::from_bytes(&device, &queue, diffuse_bytes, "ferris.png")
+                    .unwrap();
+
+            let diffuse_bind_group =
+                create_bind_group(&device, &texture_bind_group_layout, &diffuse_texture);
+            diffuse_textures.push(diffuse_texture);
+            diffuse_bind_groups.push(diffuse_bind_group);
+        }
+
         let shader = device.create_shader_module(include_wgsl!("../assets/shader.wgsl"));
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&texture_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -145,11 +176,14 @@ impl State {
                 a: 1.0,
             },
             render_pipelines,
-            current_pipeline: 0,
+            current_pipeline: 1,
             vertex_buffer,
             num_vertices,
             index_buffer,
             num_indices,
+            diffuse_bind_groups,
+            diffuse_textures,
+            current_texture: 0,
         }
     }
 
@@ -180,6 +214,19 @@ impl State {
             } => {
                 self.current_pipeline += 1;
                 self.current_pipeline %= self.render_pipelines.len();
+                true
+            }
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state: ElementState::Pressed,
+                        virtual_keycode: Some(VirtualKeyCode::T),
+                        ..
+                    },
+                ..
+            } => {
+                self.current_texture += 1;
+                self.current_texture %= self.diffuse_textures.len();
                 true
             }
             _ => false,
@@ -216,6 +263,7 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.render_pipelines[self.current_pipeline]);
+            render_pass.set_bind_group(0, &self.diffuse_bind_groups[self.current_texture], &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
@@ -227,6 +275,53 @@ impl State {
 
         Ok(())
     }
+}
+
+fn create_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    texture: &textures::Texture,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&texture.view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&texture.sampler),
+            },
+        ],
+        label: Some(format!("diffuse bind group for {}", texture.label).as_str()),
+    })
+}
+
+fn create_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                // This should match the filterable field of the
+                // corresponding Texture entry above.
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+        label: Some("texture_bind_group_layout"),
+    })
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
